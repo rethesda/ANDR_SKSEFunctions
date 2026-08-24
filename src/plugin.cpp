@@ -13,6 +13,7 @@
 #include "RE/G/GFxMovieView.h"
 #include "RE/G/GFxValue.h"
 #include "RE/M/MenuOpenCloseEvent.h"
+#include "RE/M/MiddleHighProcessData.h"
 #include "RE/M/MenuTopicManager.h"
 #include "RE/T/TESObjectBOOK.h"
 #include "RE/T/TESTopicInfo.h"
@@ -26,7 +27,7 @@
 
 // Papyrus: String Function GetAndrealphusExtenderVersion() Global Native
 // Returns the version number of the mod.
-RE::BSFixedString GetAndrealphusExtenderVersion(RE::StaticFunctionTag*) { return "1.7.3"; }
+RE::BSFixedString GetAndrealphusExtenderVersion(RE::StaticFunctionTag*) { return "1.8.0"; }
 
 ///// Added by Ivy /////
 
@@ -310,6 +311,120 @@ RE::TESTopicInfo* GetCurrentTopicInfo(RE::StaticFunctionTag*) {
     }
 
     return topicManager->currentTopicInfo;
+}
+
+
+
+
+//   commander: a CommandedActorData entry in middleHigh->commandedActors
+//   commanded: middleHigh->commandingActor, plus the kIsCommandedActor flag
+static RE::MiddleHighProcessData* EnsureMiddleHighProcess(RE::Actor* a_actor) {
+    if (!a_actor) {
+        return nullptr;
+    }
+
+    if (auto data = a_actor->GetMiddleHighProcess()) {
+        return data;
+    }
+
+    a_actor->MoveToMiddleHigh();
+
+    return a_actor->GetMiddleHighProcess();
+}
+
+static void ForgetCommandedActor(RE::Actor* a_commander, RE::ActorHandle a_commanded) {
+    auto commanderData = EnsureMiddleHighProcess(a_commander);
+
+    if (!commanderData) {
+        return;
+    }
+
+    auto& commandedActors = commanderData->commandedActors;
+
+    for (auto it = commandedActors.begin(); it != commandedActors.end(); ++it) {
+        if (it->commandedActor == a_commanded) {
+            commandedActors.erase(it);
+            return;
+        }
+    }
+}
+
+// Papyrus: Bool Function ApplyCommandEffect(Actor akCaster, Actor akTarget) Global Native
+// Makes akTarget a commanded actor of akCaster. Unlike vanilla, works on living, non-summoned actors
+// and for non-player casters. Any previous commander is released first.
+bool ApplyCommandEffect(RE::StaticFunctionTag*, RE::Actor* akCaster, RE::Actor* akTarget) {
+    if (!akCaster || !akTarget || akCaster == akTarget) {
+        return false;
+    }
+
+    auto casterData = EnsureMiddleHighProcess(akCaster);
+    auto targetData = EnsureMiddleHighProcess(akTarget);
+
+    if (!casterData || !targetData) {
+        return false;
+    }
+
+    auto casterHandle = akCaster->GetHandle();
+    auto targetHandle = akTarget->GetHandle();
+
+    // An actor answers to one commander, so take it off any previous commander's list.
+    if (auto previous = akTarget->GetCommandingActor()) {
+        if (previous.get() != akCaster) {
+            ForgetCommandedActor(previous.get(), targetHandle);
+        }
+    }
+
+    auto& commandedActors = casterData->commandedActors;
+    bool alreadyListed = false;
+
+    for (auto& entry : commandedActors) {
+        if (entry.commandedActor == targetHandle) {
+            alreadyListed = true;
+            break;
+        }
+    }
+
+    if (!alreadyListed) {
+        RE::CommandedActorData entry{};
+
+        entry.commandedActor = targetHandle;
+        entry.activeEffect = nullptr;
+
+        commandedActors.push_back(entry);
+    }
+
+    targetData->commandingActor = casterHandle;
+    akTarget->GetActorRuntimeData().boolFlags.set(RE::Actor::BOOL_FLAGS::kIsCommandedActor);
+
+    akTarget->StopCombat();
+    akTarget->EvaluatePackage();
+
+    return true;
+}
+
+// Papyrus: Function EndCommandEffect(Actor akCaster, Actor akTarget) Global Native
+// Releases akTarget from akCaster's command. Does nothing if akCaster is not its commander.
+void EndCommandEffect(RE::StaticFunctionTag*, RE::Actor* akCaster, RE::Actor* akTarget) {
+    if (!akCaster || !akTarget) {
+        return;
+    }
+
+    auto targetData = EnsureMiddleHighProcess(akTarget);
+
+    if (!targetData) {
+        return;
+    }
+
+    if (targetData->commandingActor != akCaster->GetHandle()) {
+        return;
+    }
+
+    ForgetCommandedActor(akCaster, akTarget->GetHandle());
+
+    targetData->commandingActor = RE::ActorHandle{};
+    akTarget->GetActorRuntimeData().boolFlags.reset(RE::Actor::BOOL_FLAGS::kIsCommandedActor);
+
+    akTarget->EvaluatePackage();
 }
 
 // Papyrus: Function CastEnchantment(Actor akSource, Enchantment akEnchantment, Actor akTarget)
@@ -915,6 +1030,8 @@ bool PapyrusFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("GetBookText", "ANDR_PapyrusFunctions", GetBookText);
     vm->RegisterFunction("GetOpenedBook", "ANDR_PapyrusFunctions", GetOpenedBook);
     vm->RegisterFunction("GetCurrentTopicInfo", "ANDR_PapyrusFunctions", GetCurrentTopicInfo);
+    vm->RegisterFunction("ApplyCommandEffect", "ANDR_PapyrusFunctions", ApplyCommandEffect);
+    vm->RegisterFunction("EndCommandEffect", "ANDR_PapyrusFunctions", EndCommandEffect);
 
     return true;
 }

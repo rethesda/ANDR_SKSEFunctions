@@ -151,6 +151,19 @@ Book Function GetOpenedBook() global native
 TopicInfo Function GetCurrentTopicInfo() global native
 {Returns the TopicInfo that is currently being said by an NPC while in the dialogue menu. If not in the dialogue menu, returns None.}
 
+Bool Function ApplyCommandEffect(Actor akCaster, Actor akTarget) global native
+{Makes akTarget a commanded actor of akCaster, so it follows and fights for them. Unlike vanilla, works on living, non-summoned actors and for non-player casters.
+- akCaster: the commanding actor.
+- akTarget: the actor to command. Any previous commander is released first.
+- Returns: whether the command was applied.
+}
+
+Function EndCommandEffect(Actor akCaster, Actor akTarget) global native
+{Releases akTarget from akCaster's command. Does nothing if akCaster is not the actor currently commanding akTarget.
+- akCaster: the commanding actor.
+- akTarget: the commanded actor.
+}
+
 ;/
 Event OnBookFullyRead()
 {Event that gets triggered after being on the last page of a book for 10 seconds, aka "fully read".}

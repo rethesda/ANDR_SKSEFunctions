@@ -1,8 +1,11 @@
 {
     "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-    "name": "hello-world",
+    "name": "andr-papyrusfunctions",
     "version-string": "0.0.1",
     "dependencies": [
-        "commonlibsse-ng"
-    ]
+        "spdlog",
+        "rapidcsv",
+        "directxtk"
+    ],
+    "builtin-baseline": "ee12231b20c95013c6638d845d04c91559a1d1ff"
 }

@@ -154,7 +154,7 @@ TopicInfo Function GetCurrentTopicInfo() global native
 ;/
 Event OnBookFullyRead()
 {Event that gets triggered after being on the last page of a book for 10 seconds, aka "fully read".}
-:/
+/;
 
 ; ============================= NON-NATIVE FUNCTIONS =============================
 

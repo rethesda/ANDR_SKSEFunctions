@@ -1,15 +1,8 @@
-#include <spdlog/sinks/basic_file_sink.h>
-#include <warning.h>
-
 #include "RE/A/Actor.h"
-#include "RE/A/Array.h"
-#include "RE/B/BGSPerk.h"
-#include "RE/B/BGSPerkRankArray.h"
 #include "RE/M/MagicItem.h"
 #include "RE/N/NiPoint3.h"
-#include "RE/O/Object.h"
-#include "RE/T/TESSpellList.h"
 #include "RE/V/VirtualMachine.h"
+#include <limits>
 #include <random>
 
 /*Added by Ivy*/
@@ -29,21 +22,6 @@
 
 /*Added By Ivy - Ends*/
 
-/*
-namespace logger = SKSE::log;
-
-void SetupLog() {
-    auto logsFolder = SKSE::log::log_directory();
-    if (!logsFolder) SKSE::stl::report_and_fail("SKSE log_directory not provided, logs disabled.");
-    auto pluginName = SKSE::PluginDeclaration::GetSingleton()->GetName();
-    auto logFilePath = *logsFolder / std::format("{}.log", pluginName);
-    auto fileLoggerPtr = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath.string(), true);
-    auto loggerPtr = std::make_shared<spdlog::logger>("log", std::move(fileLoggerPtr));
-    spdlog::set_default_logger(std::move(loggerPtr));
-    spdlog::set_level(spdlog::level::trace);
-    spdlog::flush_on(spdlog::level::trace);
-}
-*/
 ///// Actual new functions /////
 
 // Papyrus: String Function GetAndrealphusExtenderVersion() Global Native
@@ -129,25 +107,6 @@ static bool TryGetNumber(RE::GFxMovieView* a_movie, const char* a_path, int& a_o
     }
 
     a_out = static_cast<int>(val.GetNumber());
-    return true;
-}
-
-static bool TryGetBool(RE::GFxMovieView* a_movie, const char* a_path, bool& a_out) {
-    RE::GFxValue val;
-
-    if (!a_movie) {
-        return false;
-    }
-
-    if (!a_movie->GetVariable(&val, a_path)) {
-        return false;
-    }
-
-    if (!val.IsBool()) {
-        return false;
-    }
-
-    a_out = val.GetBool();
     return true;
 }
 
@@ -255,7 +214,7 @@ namespace BookFullyRead {
 
             RE::TESForm* sender = RE::BookMenu::GetTargetForm();
             if (!sender) {
-                sender = RE::BookMenu::GetTargetReference();
+                sender = RE::BookMenu::GetTargetReference().get();
             }
 
             ev.sender = sender;
@@ -330,7 +289,7 @@ RE::TESObjectBOOK* GetOpenedBook(RE::StaticFunctionTag*) {
         }
     }
 
-    if (auto* ref = RE::BookMenu::GetTargetReference()) {
+    if (auto ref = RE::BookMenu::GetTargetReference()) {
         if (auto* base = ref->GetBaseObject()) {
             if (auto* book = base->As<RE::TESObjectBOOK>()) {
                 return book;
@@ -448,12 +407,10 @@ float GetEffectiveScrollCost(RE::StaticFunctionTag*, RE::Actor* akSource, RE::Sc
 RE::ActiveEffect* GetActiveMagicEffectFromActor(RE::StaticFunctionTag*, RE::Actor* akActor,
                                                 RE::EffectSetting* akMagicEffect) {
     if (akMagicEffect == nullptr) {
-        //        logger::info("akMagicEffect is none.");
         return nullptr;
     }
 
     if (akActor == nullptr) {
-        //        logger::info("akActor is none.");
         return nullptr;
     }
 
@@ -466,7 +423,6 @@ RE::ActiveEffect* GetActiveMagicEffectFromActor(RE::StaticFunctionTag*, RE::Acto
     auto EffectsList = magicTarget->GetActiveEffectList();
 
     if (!EffectsList) {
-        //        logger::info("Effects List is none.");
         return nullptr;
     }
 
@@ -474,17 +430,11 @@ RE::ActiveEffect* GetActiveMagicEffectFromActor(RE::StaticFunctionTag*, RE::Acto
         const auto& setting = effect ? effect->GetBaseObject() : nullptr;
 
         if (setting) {
-            //            logger::info("The effect we're checking is {}. The effect we're looking for is {}.",
-            //            setting->formID,
-            //                         akMagicEffect->formID);
             if (setting == akMagicEffect) {
                 return effect;
             }
-        } else {
-            //            logger::info("The setting is nullptr");
         }
     }
-    //    logger::info("Effect is none.");
     return nullptr;
 }
 
@@ -505,11 +455,6 @@ void SetRefAsNoAIAcquire(RE::StaticFunctionTag*, RE::TESObjectREFR* akObject, bo
 struct ProjectileRotCustom {
     float x, z;
 };
-
-typedef uint32_t (*cast_t)(RE::Actor* caster, RE::SpellItem* spel, const RE::NiPoint3& start_pos,
-                           const ProjectileRotCustom& rotcustom);
-typedef uint32_t (*cast_CustomPos_t)(RE::Actor* caster, RE::SpellItem* spel, const RE::NiPoint3& start_pos,
-                                     const ProjectileRotCustom& rotcustom);
 
 RE::EffectSetting* getAVEffectSetting(RE::MagicItem* mgitem) {
     using func_t = decltype(getAVEffectSetting);
@@ -545,54 +490,64 @@ void CastSpellFromRef(RE::StaticFunctionTag*, RE::Actor* akSource, RE::SpellItem
         return;
     }
 
-    auto NodePosition = akOriginRef->GetPosition();
+    auto sourceHandle = akSource->GetHandle();
+    auto targetHandle = akTarget->GetHandle();
+    auto originHandle = akOriginRef->GetHandle();
 
-    //	logger::info("Position: X is {}, Y is {}, Z is {}.", NodePosition.x, NodePosition.y, NodePosition.z);
+    SKSE::GetTaskInterface()->AddTask([sourceHandle, targetHandle, originHandle, akSpell]() {
+        auto source = sourceHandle.get();
+        auto target = targetHandle.get();
+        auto originRef = originHandle.get();
 
-    auto rotcustom = rot_at_custom(NodePosition, akTarget->GetPosition());
+        if (!source || !target || !originRef) {
+            return;
+        }
 
-    //	logger::info("Rotation: X is {}, Z is {}.", rotcustom.x, rotcustom.z);
+        auto NodePosition = originRef->GetPosition();
 
-    auto eff = akSpell->GetCostliestEffectItem();
+        auto rotcustom = rot_at_custom(NodePosition, target->GetPosition());
 
-    auto mgef = getAVEffectSetting(akSpell);
+        auto eff = akSpell->GetCostliestEffectItem();
 
-    if (!eff || !mgef) {
-        return;
-    }
+        auto mgef = getAVEffectSetting(akSpell);
 
-    RE::Projectile::LaunchData ldata;
+        if (!eff || !mgef || !mgef->data.projectileBase) {
+            return;
+        }
 
-    ldata.origin = NodePosition;
-    ldata.contactNormal = {0.0f, 0.0f, 0.0f};
-    ldata.projectileBase = mgef->data.projectileBase;
-    ldata.shooter = akSource;
-    ldata.combatController = akSource->GetActorRuntimeData().combatController;
-    ldata.weaponSource = nullptr;
-    ldata.ammoSource = nullptr;
-    ldata.angleZ = rotcustom.z;
-    ldata.angleX = rotcustom.x;
-    ldata.unk50 = nullptr;
-    ldata.desiredTarget = nullptr;
-    ldata.unk60 = 0.0f;
-    ldata.unk64 = 0.0f;
-    ldata.parentCell = akSource->GetParentCell();
-    ldata.spell = akSpell;
-    ldata.castingSource = RE::MagicSystem::CastingSource::kOther;
-    ldata.enchantItem = nullptr;
-    ldata.poison = nullptr;
-    ldata.area = eff->GetArea();
-    ldata.power = 1.0f;
-    ldata.scale = 1.0f;
-    ldata.alwaysHit = false;
-    ldata.noDamageOutsideCombat = false;
-    ldata.autoAim = false;
-    ldata.useOrigin = true;
-    ldata.deferInitialization = false;
-    ldata.forceConeOfFire = false;
+        RE::Projectile::LaunchData ldata{};
 
-    RE::BSPointerHandle<RE::Projectile> handle;
-    RE::Projectile::Launch(&handle, ldata);
+        ldata.origin = NodePosition;
+        ldata.contactNormal = {0.0f, 0.0f, 0.0f};
+        ldata.projectileBase = mgef->data.projectileBase;
+        ldata.shooter = source.get();
+        ldata.combatController = source->GetActorRuntimeData().combatController;
+        ldata.weaponSource = nullptr;
+        ldata.ammoSource = nullptr;
+        ldata.angleZ = rotcustom.z;
+        ldata.angleX = rotcustom.x;
+        ldata.unk50 = nullptr;
+        ldata.desiredTarget = nullptr;
+        ldata.unk60 = 0.0f;
+        ldata.unk64 = 0.0f;
+        ldata.parentCell = source->GetParentCell();
+        ldata.spell = akSpell;
+        ldata.castingSource = RE::MagicSystem::CastingSource::kOther;
+        ldata.enchantItem = nullptr;
+        ldata.poison = nullptr;
+        ldata.area = eff->GetArea();
+        ldata.power = 1.0f;
+        ldata.scale = 1.0f;
+        ldata.alwaysHit = false;
+        ldata.noDamageOutsideCombat = false;
+        ldata.autoAim = false;
+        ldata.useOrigin = true;
+        ldata.deferInitialization = false;
+        ldata.forceConeOfFire = false;
+
+        RE::BSPointerHandle<RE::Projectile> handle;
+        RE::Projectile::Launch(&handle, ldata);
+    });
 }
 
 void CastSpellFromPointToPoint(RE::StaticFunctionTag*, RE::Actor* akSource, RE::SpellItem* akSpell, float StartPoint_X,
@@ -602,65 +557,71 @@ void CastSpellFromPointToPoint(RE::StaticFunctionTag*, RE::Actor* akSource, RE::
         return;
     }
 
-    RE::NiPoint3 NodePosition;
+    auto sourceHandle = akSource->GetHandle();
 
-    NodePosition.x = StartPoint_X;
-    NodePosition.y = StartPoint_Y;
-    NodePosition.z = StartPoint_Z;
+    SKSE::GetTaskInterface()->AddTask([sourceHandle, akSpell, StartPoint_X, StartPoint_Y, StartPoint_Z, EndPoint_X,
+                                       EndPoint_Y, EndPoint_Z]() {
+        auto source = sourceHandle.get();
 
-    //	 logger::info("NodePosition: X = {}, Y = {}, Z = {}.", NodePosition.x, NodePosition.y, NodePosition.z);
+        if (!source) {
+            return;
+        }
 
-    RE::NiPoint3 DestinationPosition;
+        RE::NiPoint3 NodePosition;
 
-    DestinationPosition.x = EndPoint_X;
-    DestinationPosition.y = EndPoint_Y;
-    DestinationPosition.z = EndPoint_Z;
+        NodePosition.x = StartPoint_X;
+        NodePosition.y = StartPoint_Y;
+        NodePosition.z = StartPoint_Z;
 
-    //	 logger::info("DestinationPosition: X = {}, Y = {}, Z = {}.", DestinationPosition.x, DestinationPosition.y,
-    //				  DestinationPosition.z);
+        RE::NiPoint3 DestinationPosition;
 
-    auto rotcustom = rot_at_custom(NodePosition, DestinationPosition);
+        DestinationPosition.x = EndPoint_X;
+        DestinationPosition.y = EndPoint_Y;
+        DestinationPosition.z = EndPoint_Z;
 
-    auto eff = akSpell->GetCostliestEffectItem();
+        auto rotcustom = rot_at_custom(NodePosition, DestinationPosition);
 
-    auto mgef = getAVEffectSetting(akSpell);
+        auto eff = akSpell->GetCostliestEffectItem();
 
-    if (!eff || !mgef) {
-        return;
-    }
+        auto mgef = getAVEffectSetting(akSpell);
 
-    RE::Projectile::LaunchData ldata;
+        if (!eff || !mgef || !mgef->data.projectileBase) {
+            return;
+        }
 
-    ldata.origin = NodePosition;
-    ldata.contactNormal = {0.0f, 0.0f, 0.0f};
-    ldata.projectileBase = mgef->data.projectileBase;
-    ldata.shooter = akSource;
-    ldata.combatController = akSource->GetActorRuntimeData().combatController;
-    ldata.weaponSource = nullptr;
-    ldata.ammoSource = nullptr;
-    ldata.angleZ = rotcustom.z;
-    ldata.angleX = rotcustom.x;
-    ldata.unk50 = nullptr;
-    ldata.desiredTarget = nullptr;
-    ldata.unk60 = 0.0f;
-    ldata.unk64 = 0.0f;
-    ldata.parentCell = akSource->GetParentCell();
-    ldata.spell = akSpell;
-    ldata.castingSource = RE::MagicSystem::CastingSource::kOther;
-    ldata.enchantItem = nullptr;
-    ldata.poison = nullptr;
-    ldata.area = eff->GetArea();
-    ldata.power = 1.0f;
-    ldata.scale = 1.0f;
-    ldata.alwaysHit = false;
-    ldata.noDamageOutsideCombat = false;
-    ldata.autoAim = false;
-    ldata.useOrigin = true;
-    ldata.deferInitialization = false;
-    ldata.forceConeOfFire = false;
+        RE::Projectile::LaunchData ldata{};
 
-    RE::BSPointerHandle<RE::Projectile> handle;
-    RE::Projectile::Launch(&handle, ldata);
+        ldata.origin = NodePosition;
+        ldata.contactNormal = {0.0f, 0.0f, 0.0f};
+        ldata.projectileBase = mgef->data.projectileBase;
+        ldata.shooter = source.get();
+        ldata.combatController = source->GetActorRuntimeData().combatController;
+        ldata.weaponSource = nullptr;
+        ldata.ammoSource = nullptr;
+        ldata.angleZ = rotcustom.z;
+        ldata.angleX = rotcustom.x;
+        ldata.unk50 = nullptr;
+        ldata.desiredTarget = nullptr;
+        ldata.unk60 = 0.0f;
+        ldata.unk64 = 0.0f;
+        ldata.parentCell = source->GetParentCell();
+        ldata.spell = akSpell;
+        ldata.castingSource = RE::MagicSystem::CastingSource::kOther;
+        ldata.enchantItem = nullptr;
+        ldata.poison = nullptr;
+        ldata.area = eff->GetArea();
+        ldata.power = 1.0f;
+        ldata.scale = 1.0f;
+        ldata.alwaysHit = false;
+        ldata.noDamageOutsideCombat = false;
+        ldata.autoAim = false;
+        ldata.useOrigin = true;
+        ldata.deferInitialization = false;
+        ldata.forceConeOfFire = false;
+
+        RE::BSPointerHandle<RE::Projectile> handle;
+        RE::Projectile::Launch(&handle, ldata);
+    });
 }
 
 inline void LaunchAmmo(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::TESAmmo* a_ammo, RE::TESObjectWEAP* a_weapon,
@@ -669,11 +630,24 @@ inline void LaunchAmmo(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::TESAmmo* 
     //   a_projbase needs to be assigned through Papyrus. Using a_ammo->data.projectile gives an invalid value. As does
     //   getting it through launchData.
 
-    if (!a_actor) {
+    if (!a_actor || !a_projbase) {
         return;
     }
 
-    SKSE::GetTaskInterface()->AddTask([a_actor, a_ammo, a_weapon, a_nodeName, a_target, a_projbase, a_secondOrigin]() {
+    auto actorHandle = a_actor->GetHandle();
+    auto targetHandle = a_target ? a_target->GetHandle() : RE::ObjectRefHandle{};
+    auto originHandle = a_secondOrigin ? a_secondOrigin->GetHandle() : RE::ObjectRefHandle{};
+
+    SKSE::GetTaskInterface()->AddTask([actorHandle, a_ammo, a_weapon, a_nodeName, targetHandle, a_projbase,
+                                       originHandle]() {
+        auto a_actor = actorHandle.get();
+        if (!a_actor) {
+            return;
+        }
+
+        auto a_target = targetHandle.get();
+        auto a_secondOrigin = originHandle.get();
+
         RE::NiAVObject* root = nullptr;
         if (a_secondOrigin) {
             root = a_secondOrigin->GetCurrent3D();
@@ -701,14 +675,14 @@ inline void LaunchAmmo(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::TESAmmo* 
 
             RE::NiPoint3 targetcoords;
 
-            RE::Actor* a_targetactor = skyrim_cast<RE::Actor*>(a_target);
+            RE::Actor* a_targetactor = skyrim_cast<RE::Actor*>(a_target.get());
 
             if (a_actor->IsPlayerRef()) {
                 targetcoords = a_target->GetPosition();
             } else {
                 if (a_targetactor) {
                     targetcoords = a_target->GetPosition();
-                    float heightincrease = a_target->GetHeight() * 0.6;
+                    float heightincrease = static_cast<float>(a_target->GetHeight() * 0.6);
                     targetcoords.z += heightincrease;
 
                 } else {
@@ -728,17 +702,6 @@ inline void LaunchAmmo(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::TESAmmo* 
             angles.x = -angleX;
             angles.z = angleZ;
 
-            /*
-                        logger::info("origin: x={}, y={}, z={}", origin.x, origin.y, origin.z);
-                        logger::info("targetcoords: x={}, y={}, z={}", targetcoords.x, targetcoords.y, targetcoords.z);
-                        logger::info("horizontalDist={}", horizontalDist);
-                        logger::info("dx={}", dx);
-                        logger::info("dy={}", dy);
-                        logger::info("dz={}", dz);
-                        logger::info("angleX={}", angles.x);
-                        logger::info("angleZ={}", angles.z);
-            */
-
         } else {
             origin = a_actor->GetPosition();
             origin.z += 96.0f;
@@ -748,7 +711,7 @@ inline void LaunchAmmo(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::TESAmmo* 
         }
 
         RE::ProjectileHandle handle{};
-        RE::Projectile::LaunchData launchData(a_actor, origin, angles, a_ammo, a_weapon);
+        RE::Projectile::LaunchData launchData(a_actor.get(), origin, angles, a_ammo, a_weapon);
 
         launchData.autoAim = false;
         launchData.projectileBase = a_projbase;
@@ -760,11 +723,23 @@ inline void LaunchAmmo(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::TESAmmo* 
 inline void LaunchMagicSpell(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::SpellItem* a_spell,
                              RE::BSFixedString a_nodeName, RE::TESObjectREFR* a_target, RE::BGSProjectile* a_projbase,
                              RE::TESObjectREFR* a_secondOrigin) {
-    if (!a_actor) {
+    if (!a_actor || !a_projbase) {
         return;
     }
 
-    SKSE::GetTaskInterface()->AddTask([a_actor, a_spell, a_nodeName, a_target, a_projbase, a_secondOrigin]() {
+    auto actorHandle = a_actor->GetHandle();
+    auto targetHandle = a_target ? a_target->GetHandle() : RE::ObjectRefHandle{};
+    auto originHandle = a_secondOrigin ? a_secondOrigin->GetHandle() : RE::ObjectRefHandle{};
+
+    SKSE::GetTaskInterface()->AddTask([actorHandle, a_spell, a_nodeName, targetHandle, a_projbase, originHandle]() {
+        auto a_actor = actorHandle.get();
+        if (!a_actor) {
+            return;
+        }
+
+        auto a_target = targetHandle.get();
+        auto a_secondOrigin = originHandle.get();
+
         RE::NiAVObject* root = nullptr;
         if (a_secondOrigin) {
             root = a_secondOrigin->GetCurrent3D();
@@ -791,14 +766,14 @@ inline void LaunchMagicSpell(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::Spe
             origin = fireNode->world.translate;
             RE::NiPoint3 targetcoords;
 
-            RE::Actor* a_targetactor = skyrim_cast<RE::Actor*>(a_target);
+            RE::Actor* a_targetactor = skyrim_cast<RE::Actor*>(a_target.get());
 
             if (a_actor->IsPlayerRef()) {
                 targetcoords = a_target->GetPosition();
             } else {
                 if (a_targetactor) {
                     targetcoords = a_target->GetPosition();
-                    float heightincrease = a_target->GetHeight() * 0.6;
+                    float heightincrease = static_cast<float>(a_target->GetHeight() * 0.6);
                     targetcoords.z += heightincrease;
 
                 } else {
@@ -818,16 +793,6 @@ inline void LaunchMagicSpell(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::Spe
             angles.x = -angleX;
             angles.z = angleZ;
 
-            /*
-                        logger::info("origin: x={}, y={}, z={}", origin.x, origin.y, origin.z);
-                        logger::info("targetcoords: x={}, y={}, z={}", targetcoords.x, targetcoords.y, targetcoords.z);
-                        logger::info("horizontalDist={}", horizontalDist);
-                        logger::info("dx={}", dx);
-                        logger::info("dy={}", dy);
-                        logger::info("dz={}", dz);
-                        logger::info("angleX={}", angles.x);
-                        logger::info("angleZ={}", angles.z);
-            */
         } else {
             origin = a_actor->GetPosition();
             origin.z += 96.0f;
@@ -837,7 +802,7 @@ inline void LaunchMagicSpell(RE::StaticFunctionTag*, RE::Actor* a_actor, RE::Spe
         }
 
         RE::ProjectileHandle handle{};
-        RE::Projectile::LaunchData launchData(a_actor, origin, angles, a_spell);
+        RE::Projectile::LaunchData launchData(a_actor.get(), origin, angles, a_spell);
 
         launchData.autoAim = false;
         launchData.projectileBase = a_projbase;
@@ -894,17 +859,6 @@ void MoveRefToCrosshairLoc(RE::StaticFunctionTag*, RE::Actor* originRef, RE::TES
     RE::NiPoint3 originPos = originRef->GetPosition();
     RE::NiPoint3 finalPos = {originPos.x + offsetX, originPos.y + offsetY, originPos.z + offsetZ};
 
-    /*  logger::info("GameX = {}, GameZ = {}, AngleX = {}, AngleZ = {}", gameX, gameZ, angleX, angleZ);
-
-        logger::info("TotalOffsetX: fDistance = {}, ArgumentMathSinX = {}, ArgumentMathCosZ = {}, ExtraOffsetX = {}",
-       fDistance, ArgumentMathSinX, ArgumentMathCosZ, extraX); logger::info("TotalOffsetY: fDistance = {},
-       ArgumentMathSinX = {}, ArgumentMathSinZ = {}, ExtraOffsetY = {}", fDistance, ArgumentMathSinX, ArgumentMathSinZ,
-       extraY); logger::info("TotalOffsetZ: fDistance = {}, ArgumentMathCosX = {}, fHeight = {}, ExtraOffsetZ = {}",
-       fDistance, ArgumentMathCosX, fHeight, extraZ);
-
-        logger::info("finalPos: x = {}, y = {}, z = {}", finalPos.x, finalPos.y, finalPos.z);
-    */
-
     markerRef->MoveTo(originRef);
     markerRef->SetPosition(finalPos);
 }
@@ -915,23 +869,27 @@ int MakeDiceRoll(RE::StaticFunctionTag*, int iNumberOfDice, int iNumberOfSides, 
     if (iNumberOfDice <= 0 || iNumberOfSides < 1) 
         return iModifier;
 
-/*
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-*/
-
     // Thread safety "static std::mt19937 is not thread-safe"
     thread_local std::mt19937 gen(std::random_device{}());
 
     std::uniform_int_distribution<> dist(1, iNumberOfSides);
 
-    int total = 0;
+    std::int64_t total = iModifier;
 
     for (int i = 0; i < iNumberOfDice; ++i) {
         total += dist(gen);
     }
 
-    return total + iModifier;
+    // Papyrus Int is 32-bit, so saturate rather than wrap on absurd inputs
+    if (total > (std::numeric_limits<int>::max)()) {
+        return (std::numeric_limits<int>::max)();
+    }
+
+    if (total < (std::numeric_limits<int>::min)()) {
+        return (std::numeric_limits<int>::min)();
+    }
+
+    return static_cast<int>(total);
 }
 
 bool PapyrusFunctions(RE::BSScript::IVirtualMachine* vm) {
@@ -958,340 +916,12 @@ bool PapyrusFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("GetOpenedBook", "ANDR_PapyrusFunctions", GetOpenedBook);
     vm->RegisterFunction("GetCurrentTopicInfo", "ANDR_PapyrusFunctions", GetCurrentTopicInfo);
 
-
-    /*  depreciated functions
-        vm->RegisterFunction("CastSpellFromHand", "ANDR_PapyrusFunctions", CastSpellFromHand);
-        vm->RegisterFunction("MoveRefToCrosshairLocation", "ANDR_PapyrusFunctions", MoveRefToCrosshairLocation);
-        vm->RegisterFunction("AddSpellsToActor", "ANDR_PapyrusFunctions", AddSpellsToActor);
-        vm->RegisterFunction("AddPerksToActor", "ANDR_PapyrusFunctions", AddPerksToActor);
-        vm->RegisterFunction("DumpActorSpellsToFormList", "ANDR_PapyrusFunctions", DumpActorSpellsToFormList);
-        vm->RegisterFunction("DumpActorPerksToFormList", "ANDR_PapyrusFunctions", DumpActorPerksToFormList);
-    */
     return true;
 }
 
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SKSE::Init(skse);
     BookFullyRead::Install();  // Added by Ivy
-    //    SetupLog();
     SKSE::GetPapyrusInterface()->Register(PapyrusFunctions);
     return true;
 }
-
-/*
-    Old depreciated code -> kept as backup and reference.
-
-
-    // Math for this function seems to be different than through papyrus, as such it's done as a non-native function,
-    that calls CastSpellFromPointToPoint() for now.
-    // Papyrus: Function CastSpellFromHand(Actor akSource, Spell akSpell, Bool IsLeftHand, Float DistanceVar = 2000.0,
-    Float HeightVar = 100.0,
-    // Bool UseCustomObject = False, Form akObjectBase = None,
-    // Float Offset_NoSneak_Left_X = 30.0, Float Offset_NoSneak_Left_Y = 30.0, Float Offset_NoSneak_Left_Z = 110.0,
-    // Float Offset_NoSneak_Right_X = 30.0, Float Offset_NoSneak_Right_Y = -30.0, Float Offset_NoSneak_Right_Z = 110.0,
-    // Float Offset_Sneak_Left_X = 30.0, Float Offset_Sneak_Left_Y = 30.0, Float Offset_Sneak_Left_Z = 70.0,
-    // Float Offset_Sneak_Right_X = 30.0, Float Offset_Sneak_Right_Y = -30.0, Float Offset_Sneak_Right_Z = 70.0)
-    void CastSpellFromHand(RE::StaticFunctionTag*, RE::Actor* akSource, RE::SpellItem* akSpell, bool IsLeftHand,
-                             float DistanceVar, float HeightVar, float Offset_NoSneak_Left_X, float
-    Offset_NoSneak_Left_Y, float Offset_NoSneak_Left_Z, float Offset_NoSneak_Right_X, float Offset_NoSneak_Right_Y,
-                             float Offset_NoSneak_Right_Z, float Offset_Sneak_Left_X, float Offset_Sneak_Left_Y,
-                             float Offset_Sneak_Left_Z, float Offset_Sneak_Right_X, float Offset_Sneak_Right_Y,
-                             float Offset_Sneak_Right_Z) {
-
-          float GameX = akSource->GetAngle().x;
-          float GameZ = akSource->GetAngle().z;
-          float AngleX = 90.0 + GameX;
-          float AngleZ;
-
-          float SourceMarkerXOffset_Standard;
-          float SourceMarkerYOffset_Standard;
-          float SourceMarkerZOffset_Standard;
-
-          if (GameZ < 90.0) {
-              AngleZ = (90.0 - GameZ);
-          } else {
-              AngleZ = (450.0 - GameZ);
-          }
-
-        if (akSource->IsSneaking())
-          {
-                  if (IsLeftHand == true) {
-                      SourceMarkerXOffset_Standard = Offset_Sneak_Left_X;
-                      SourceMarkerYOffset_Standard = Offset_Sneak_Left_Y;
-                      SourceMarkerZOffset_Standard = Offset_Sneak_Left_Z;
-                  } else {
-                      SourceMarkerXOffset_Standard = Offset_Sneak_Right_X;
-                      SourceMarkerYOffset_Standard = Offset_Sneak_Right_Y;
-                      SourceMarkerZOffset_Standard = Offset_Sneak_Right_Z;
-                  }
-
-          } else {
-                  if (IsLeftHand == true) {
-                          SourceMarkerXOffset_Standard = Offset_NoSneak_Left_X;
-                          SourceMarkerYOffset_Standard = Offset_NoSneak_Left_Y;
-                          SourceMarkerZOffset_Standard = Offset_NoSneak_Left_Z;
-                  } else {
-                          SourceMarkerXOffset_Standard = Offset_NoSneak_Right_X;
-                          SourceMarkerYOffset_Standard = Offset_NoSneak_Right_Y;
-                          SourceMarkerZOffset_Standard = Offset_NoSneak_Right_Z;
-                  }
-          }
-
-          RE::NiPoint3 NodePosition;
-
-          NodePosition.x = (akSource->GetPositionX() + (cos(AngleZ) * SourceMarkerXOffset_Standard - sin(AngleZ) *
-          SourceMarkerYOffset_Standard));
-          NodePosition.y = (akSource->GetPositionY() + (cos(AngleZ) * SourceMarkerYOffset_Standard + sin(AngleZ) *
-          SourceMarkerXOffset_Standard));
-          NodePosition.z = (akSource->GetPositionZ() + SourceMarkerZOffset_Standard);
-
-          logger::info("NodePosition: X = {}, Y = {}, Z = {}.", NodePosition.x, NodePosition.y, NodePosition.z);
-
-          RE::NiPoint3 DestinationPosition;
-
-          DestinationPosition.x = (akSource->GetPositionX() + (DistanceVar * sin(AngleX) * cos(AngleZ)));
-          DestinationPosition.y = (akSource->GetPositionY() + (DistanceVar * sin(AngleX) * sin(AngleZ)));
-          DestinationPosition.z = (akSource->GetPositionZ() + (DistanceVar * cos(AngleX) + HeightVar));
-
-          logger::info("DestinationPosition: X = {}, Y = {}, Z = {}.", DestinationPosition.x, DestinationPosition.y,
-                       DestinationPosition.z);
-
-          auto rot = rot_at(NodePosition, DestinationPosition);
-
-          auto eff = akSpell->GetCostliestEffectItem();
-
-          auto mgef = getAVEffectSetting(akSpell);
-
-          RE::Projectile::LaunchData ldata;
-
-          ldata.origin = NodePosition;
-          ldata.contactNormal = {0.0f, 0.0f, 0.0f};
-          ldata.projectileBase = mgef->data.projectileBase;
-          ldata.shooter = akSource;
-          ldata.combatController = akSource->GetActorRuntimeData().combatController;
-          ldata.weaponSource = nullptr;
-          ldata.ammoSource = nullptr;
-          ldata.angleZ = rot.z;
-          ldata.angleX = rot.x;
-          ldata.unk50 = nullptr;
-          ldata.desiredTarget = nullptr;
-          ldata.unk60 = 0.0f;
-          ldata.unk64 = 0.0f;
-          ldata.parentCell = akSource->GetParentCell();
-          ldata.spell = akSpell;
-          ldata.castingSource = RE::MagicSystem::CastingSource::kOther;
-          ldata.unk7C = 0;
-          ldata.enchantItem = nullptr;
-          ldata.poison = nullptr;
-          ldata.area = eff->GetArea();
-          ldata.power = 1.0f;
-          ldata.scale = 1.0f;
-          ldata.alwaysHit = false;
-          ldata.noDamageOutsideCombat = false;
-          ldata.autoAim = false;
-          ldata.unk9F = false;
-          ldata.useOrigin = true;
-          ldata.deferInitialization = false;
-          ldata.forceConeOfFire = false;
-
-          RE::BSPointerHandle<RE::Projectile> handle;
-          RE::Projectile::Launch(&handle, ldata);
-    }
-
-    // This line is needed for CastSpellFromRef(), CastSpellFromHand() and CastSpellFromPointToPoint() to compile, might
-    no longer be needed in the future? ---> This is a dtor.
-
-    RE::Projectile::LaunchData::~LaunchData() {}
-
-
-void MoveObjectWithOffset(RE::TESObjectREFR* ObjectToMove, RE::TESObjectREFR* TargetObject, const RE::NiPoint3&
-localOffset)
-{
-// NOT a papyrus function -> just needed for MoveRefToCrosshairLocation()
-
-    if (ObjectToMove && TargetObject) {
-
-        const RE::NiPoint3& TargetObjectPos = TargetObject->GetPosition();
-        float angleZ = TargetObject->GetAngleZ();  // yaw angle (radians)
-
-        float cosYaw = std::cos(angleZ);
-        float sinYaw = std::sin(angleZ);
-
-        RE::NiPoint3 worldOffset;
-        worldOffset.x = localOffset.x * cosYaw - localOffset.y * sinYaw;
-        worldOffset.y = localOffset.x * sinYaw + localOffset.y * cosYaw;
-        worldOffset.z = localOffset.z;
-
-        RE::NiPoint3 newWorldPos = TargetObjectPos + worldOffset;
-
-        ObjectToMove->SetPosition(newWorldPos);
-    }
-}
-
-void MoveRefToCrosshairLocation(RE::StaticFunctionTag*, RE::TESObjectREFR* a_originactor,
-                                RE::TESObjectREFR* a_targetref, float DistanceVar, float HeightVar) {
-
-    a_targetref->MoveTo(a_originactor);
-    RE::NiPoint3 origincoords = a_originactor->GetPosition();
-
-    float GameX = a_originactor->GetAngleX();
-    float GameZ = a_originactor->GetAngleZ();
-    float AngleX = (90 + GameX);
-    float AngleZ;
-
-    if (GameZ < 90) {
-        AngleZ = (90 - GameZ);
-    } else {
-        AngleZ = (450 - GameZ);
-    }
-
-    RE::NiPoint3 TargetPosition;
-
-    TargetPosition.x = (origincoords.x + (DistanceVar * sin(AngleX) * cos(AngleZ)));
-    TargetPosition.y = (origincoords.y + (DistanceVar * sin(AngleX) * sin(AngleZ)));
-    TargetPosition.z = (origincoords.z + (DistanceVar * cos(AngleX) + HeightVar));
-
-    auto* player = RE::PlayerCharacter::GetSingleton();
-    MoveObjectWithOffset(a_targetref, player, TargetPosition);
-
-}
-
-
-void EndDialogue(RE::StaticFunctionTag*, RE::Actor* a_actor) {
-    a_actor->EndDialogue();
-}
-
-RE::BGSDialogueBranch* GetCurrentDialogueBranch(RE::StaticFunctionTag*, RE::Actor* a_actor) {
-    return a_actor->GetExclusiveBranch();
-}
-
-
-void AddSpellsToActor(RE::StaticFunctionTag*, RE::Actor* actorRef, RE::BSScript::VMArray<RE::SpellItem*> spells)
-{
-    if (!actorRef || !spells)
-        return;
-
-    for (uint32_t i = 0; i < spells->size(); ++i) {
-        const auto& var = (*spells)[i];
-        RE::BSScript::Object* obj = var.GetObject().get();
-
-        if (obj && obj->IsValid()) {
-            RE::TESForm* form = reinterpret_cast<RE::TESForm*>(obj);
-            if (form) {
-                auto* spell = form->As<RE::SpellItem>();
-                if (spell) {
-                    actorRef->AddSpell(spell);
-                }
-            }
-        }
-    }
-}
-
-void AddPerksToActor(RE::StaticFunctionTag*, RE::Actor* actorRef, RE::BSScript::Array* perks) {
-    if (!actorRef || !perks)
-        return;
-
-    for (uint32_t i = 0; i < perks->size(); ++i) {
-        const auto& var = (*perks)[i];
-        RE::BSScript::Object* obj = var.GetObject().get();
-
-        if (obj && obj->IsValid()) {
-            RE::TESForm* form = reinterpret_cast<RE::TESForm*>(obj);
-            if (form) {
-                auto* perk = form->As<RE::BGSPerk>();
-                if (perk) {
-                    actorRef->AddPerk(perk);
-                }
-            }
-        }
-    }
-}
-
-void AddShoutsToActor(RE::StaticFunctionTag*, RE::Actor* actorRef, RE::BSScript::Array* shouts) {
-    if (!actorRef || !shouts)
-        return;
-
-    for (uint32_t i = 0; i < shouts->size(); ++i) {
-        const auto& var = (*shouts)[i];
-        RE::BSScript::Object* obj = var.GetObject().get();
-
-        if (obj && obj->IsValid()) {
-            RE::TESForm* form = reinterpret_cast<RE::TESForm*>(obj);
-            if (form) {
-                auto* shout = form->As<RE::TESShout>();
-                if (shout) {
-                    actorRef->AddShout(shout);
-                }
-            }
-        }
-    }
-}
-
-
-void AddSpellsToActor(RE::StaticFunctionTag*, RE::Actor* actorRef, RE::BGSListForm* spellList)
-{
-    for (auto* form : spellList->forms) {
-        if (auto* spell = form->As<RE::SpellItem>()) {
-            actorRef->AddSpell(spell);
-        }
-    }
-}
-
-void AddPerksToActor(RE::StaticFunctionTag*, RE::Actor* actorRef, RE::BGSListForm* perkList)
-{
-    for (auto* form : perkList->forms) {
-        if (auto* perk = form->As<RE::BGSPerk>()) {
-            actorRef->AddPerk(perk);
-        }
-    }
-}
-
-void DumpActorSpellsToFormList(RE::StaticFunctionTag*, RE::Actor* actor, RE::BGSListForm* outList)
-{
-    if (!actor || !outList)
-        return;
-
-    outList->forms.clear();
-
-    // From actor base (racial/class spells)
-    if (auto* base = actor->GetActorBase()) {
-        if (auto* npc = base->As<RE::TESNPC>()) {
-            if (auto* spellData = npc->GetSpellList()) {
-                for (std::uint32_t i = 0; i < spellData->numSpells; ++i) {
-                    if (auto* spell = spellData->spells[i]; spell && !outList->HasForm(spell)) {
-                        outList->forms.push_back(spell);
-                    }
-                }
-            }
-        }
-    }
-
-    // From runtime (learned/given spells)
-    for (auto* spell : actor->GetActorRuntimeData().addedSpells) {
-        if (spell && !outList->HasForm(spell)) {
-            outList->forms.push_back(spell);
-        }
-    }
-}
-
-void DumpActorPerksToFormList(RE::StaticFunctionTag*, RE::Actor* actor, RE::BGSListForm* outList)
-{
-    if (!actor || !outList)
-        return;
-
-    outList->forms.clear();
-
-    if (auto* base = actor->GetActorBase()) {
-        auto* perkArray = static_cast<RE::BGSPerkRankArray*>(base);
-        auto* perks = perkArray->perks;
-        auto  count = perkArray->perkCount;
-
-        for (std::uint32_t i = 0; i < count; ++i) {
-            auto& entry = perks[i];
-            if (entry.perk && !outList->HasForm(entry.perk)) {
-                outList->forms.push_back(entry.perk);
-            }
-        }
-    }
-}
-*/

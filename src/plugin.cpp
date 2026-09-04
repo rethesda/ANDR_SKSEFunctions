@@ -27,7 +27,7 @@
 
 // Papyrus: String Function GetAndrealphusExtenderVersion() Global Native
 // Returns the version number of the mod.
-RE::BSFixedString GetAndrealphusExtenderVersion(RE::StaticFunctionTag*) { return "1.8.0"; }
+RE::BSFixedString GetAndrealphusExtenderVersion(RE::StaticFunctionTag*) { return "1.9.0"; }
 
 ///// Added by Ivy /////
 
@@ -1007,6 +1007,36 @@ int MakeDiceRoll(RE::StaticFunctionTag*, int iNumberOfDice, int iNumberOfSides, 
     return static_cast<int>(total);
 }
 
+int GetFactionCrimeGoldValue(RE::StaticFunctionTag*, RE::TESFaction* CrimeFaction, int iCrimeType) {
+    
+    if (!CrimeFaction) {
+        return 0;
+    }
+
+    switch (iCrimeType) {
+        case 1:
+            return CrimeFaction->crimeData.crimevalues.murderCrimeGold;
+
+        case 2:
+            return CrimeFaction->crimeData.crimevalues.assaultCrimeGold;
+
+        case 3:
+            return CrimeFaction->crimeData.crimevalues.trespassCrimeGold;
+
+        case 4:
+            return CrimeFaction->crimeData.crimevalues.stealCrimeGoldMult;
+
+        case 5:
+            return CrimeFaction->crimeData.crimevalues.escapeCrimeGold;
+
+        case 6:
+            return CrimeFaction->crimeData.crimevalues.werewolfCrimeGold;
+
+        default:
+            return 0;
+    }
+}
+
 bool PapyrusFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("GetAndrealphusExtenderVersion", "ANDR_PapyrusFunctions", GetAndrealphusExtenderVersion);
     vm->RegisterFunction("CastEnchantment", "ANDR_PapyrusFunctions", CastEnchantment);
@@ -1024,6 +1054,7 @@ bool PapyrusFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("LaunchMagicSpell", "ANDR_PapyrusFunctions", LaunchMagicSpell);
     vm->RegisterFunction("MoveRefToCrosshairLoc", "ANDR_PapyrusFunctions", MoveRefToCrosshairLoc);
     vm->RegisterFunction("MakeDiceRoll", "ANDR_PapyrusFunctions", MakeDiceRoll);
+    vm->RegisterFunction("GetFactionCrimeGoldValue", "ANDR_PapyrusFunctions", GetFactionCrimeGoldValue);
 
     /*Added by Ivy*/
     vm->RegisterFunction("GetCurrentBookPage", "ANDR_PapyrusFunctions", GetCurrentBookPage);

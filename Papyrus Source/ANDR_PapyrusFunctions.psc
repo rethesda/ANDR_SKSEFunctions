@@ -132,6 +132,19 @@ Rolls a certain number of dies, with a modifier. For instance, MakeDiceRoll(3, 6
 - Returns: the result of the dice roll.
 }
 
+Int Function GetFactionCrimeGoldValue(Faction CrimeFaction, int iCrimeType) global native
+{
+- CrimeFaction: the faction to check
+- iCrimeType: the type of crime
+1 = Murder
+2 = Assault
+3 = Trespass
+4 = Pickpocket
+5 = Escape
+6 = Werewolf
+Returns: the amount of the bounty you'll get for commiting the specified crime.
+}
+
 ; =================================== SKSE Functions by Ivy =====================================
 
 Int Function GetCurrentBookPage() global native
